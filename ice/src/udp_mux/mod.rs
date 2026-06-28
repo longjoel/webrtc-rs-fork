@@ -184,6 +184,23 @@ impl UDPMuxDefault {
                                     None if is_stun_message(&buffer) => {
                                         loop_self.conn_from_stun_message(&buffer, &addr).await
                                     }
+                                    // Two peers behind the same NAT share an IP:port. The address_map
+                                    // cache would misroute the wrong peer's ICE packets without
+                                    // validating the STUN ufrag.
+                                    Some(cached) if is_stun_message(&buffer) => {
+                                        match loop_self.conn_from_stun_message(&buffer, &addr).await {
+                                            Some(ufrag_conn) => {
+                                                if ufrag_conn.key() != cached.key() {
+                                                    log::debug!(
+                                                        "UDPMux: address_map routed to {} but ufrag says {}",
+                                                        cached.key(), ufrag_conn.key()
+                                                    );
+                                                }
+                                                Some(ufrag_conn)
+                                            }
+                                            None => Some(cached),
+                                        }
+                                    }
                                     s @ Some(_) => s,
                                     _ => None,
                                 };
